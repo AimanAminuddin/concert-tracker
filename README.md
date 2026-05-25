@@ -33,8 +33,8 @@ decision by combining concert data, flight costs, and AI-powered scoring.
 ```
 4. Run the pipeline
 ```bash
-   python src/week1_fetch_concerts.py
-   python src/week2_ai_extract.py
+   python src/fetch_concert_info.py
+   python src/ai_concert_data_extract.py
 ```
 
 ## Project Status
