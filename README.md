@@ -39,7 +39,7 @@ decision by combining concert data, flight costs, and AI-powered scoring.
 
 ## Project Status
 - [x] Week 1 — Fetch concert data from Ticketmaster
-- [x] Week 2 — AI extraction and enrichment with Gemini
+- [] Week 2 — AI extraction and enrichment with Gemini
 - [ ] Week 3 — Flight cost lookup via Serpapi
 - [ ] Week 4 — Ranking and scoring system
 - [ ] Week 5 — Database storage
