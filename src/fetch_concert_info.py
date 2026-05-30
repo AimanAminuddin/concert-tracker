@@ -5,6 +5,8 @@ Pulls upcoming events for your favourite artists using Ticketmaster API
 
 import requests
 import json
+import spotipy
+from spotipy.oauth2 import SpotifyOAuth
 import os
 from dotenv import load_dotenv
 
@@ -30,8 +32,44 @@ BANNED_KEYWORDS = [
     "night with", 
     "inspired", 
     "playhouse",
-    "singalong"
+    "singalong",
+    'sing',
+    'ultimate'
 ]
+
+# ----------------------------
+# DYNAMIC SPOTIFY FETCH
+# ----------------------------
+
+def get_spotify_top_artists(limit: int = 5) -> list[str]:
+    """
+    Authenticates with Spotify using OAuth and fetches the user's top favorite artists.
+    
+    Args:
+        limit (int): Number of top artists to fetch. Defaults to 5.
+        
+    Returns:
+        list[str]: A dynamic list of artist names from Spotify listening history.
+    """
+    print("🔊 Authenticating with Spotify...")
+    try:
+        # SpotifyOAuth automatically reads SPOTIPY_CLIENT_ID, SPOTIPY_CLIENT_SECRET, 
+        # and SPOTIPY_REDIRECT_URI from your .env file
+        sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
+            scope="user-top-read"
+        ))
+        
+        # Fetch top artists (medium_term handles the last few months of history)
+        results = sp.current_user_top_artists(limit=limit, time_range="medium_term")
+        
+        artist_names = [artist['name'] for artist in results['items']]
+        print(f"🎵 Loaded your top {len(artist_names)} Spotify artists: {', '.join(artist_names)}\n")
+        return artist_names
+        
+    except Exception as e:
+        print(f"🚨 Failed to pull artists from Spotify: {e}")
+        print("Fallback: Using default fallback artist array.")
+        return ["Taylor Swift", "Coldplay", "The Weeknd"]
 
 # ----------------------------
 # FETCH EVENTS
@@ -176,6 +214,11 @@ def save_to_json(events, filename="data/concerts.json"):
 
 
 if __name__ == "__main__":
-    events = fetch_all_events(ARTISTS)
+    # Get dynamic list of 5 favourite artists right out Spotify profile
+    dynamic_artists = get_spotify_top_artists(limit=5)
+    # events = fetch_all_events(ARTISTS)
+
+    # Run ticketmaster pipeline with spotify artists 
+    events = fetch_all_events(dynamic_artists)
     print_events(events)
     save_to_json(events)
