@@ -23,18 +23,13 @@ ARTISTS = [
     "The Weeknd",
 ]
 
-# Array containing words that usually means the actual artist not performing
+# Robust array capturing tribute bands, clubs, AND venue logistics/add-ons
 BANNED_KEYWORDS = [
-    "tribute", 
-    "party", 
-    "dance", 
-    "for kids", 
-    "night with", 
-    "inspired", 
-    "playhouse",
-    "singalong",
-    'sing',
-    'ultimate'
+    "tribute", "party", "dance", "for kids", "night with", "inspired", 
+    "playhouse", "singalong", "sing", "ultimate", "cover band",
+    "parking", "pass", "add-on", "lounge", "hotel", "vip package only", 
+    "permit", "ticket only", "lounge access", "club access",
+    "platinum", "premium tickets", "premium package","vip packages"
 ]
 
 # ----------------------------
@@ -58,16 +53,16 @@ def get_spotify_top_artists(limit: int = 5) -> list[str]:
         sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
             scope="user-top-read"
         ))
-        
+
         # Fetch top artists (medium_term handles the last few months of history)
         results = sp.current_user_top_artists(limit=limit, time_range="medium_term")
-        
+
         artist_names = [artist['name'] for artist in results['items']]
-        print(f"🎵 Loaded your top {len(artist_names)} Spotify artists: {', '.join(artist_names)}\n")
+        print(f"Loaded your top {len(artist_names)} Spotify artists: {', '.join(artist_names)}\n")
         return artist_names
-        
+
     except Exception as e:
-        print(f"🚨 Failed to pull artists from Spotify: {e}")
+        print(f"Failed to pull artists from Spotify: {e}")
         print("Fallback: Using default fallback artist array.")
         return ["Taylor Swift", "Coldplay", "The Weeknd"]
 
@@ -94,26 +89,18 @@ def get_events_for_artist(artist_name: str) -> list[dict]:
         "sort": "date,asc",
         # Use a large size to pull more records since we will filter
         # out some using BANNED_KEYWORDS
-        "size": 20,
+        "size": 40,
     }
     response = requests.get(url, params=params)
     response.raise_for_status()
     data = response.json()
     return data.get("_embedded", {}).get("events", [])
 
-
 def extract_event_info(event: dict, artist_name: str) -> dict:
     """
-    Parses a messy, nested raw API event dictionary and extracts essential details into a clean format.
-
-    Args:
-        event (dict): The raw event dictionary from Ticketmaster.
-        artist_name (str): The name of the tracked artist.
-        
-    Returns:
-        dict: A flattened dictionary containing structured event details (venue, city, price, etc.).
+    Parses a messy, nested raw API event dictionary and extracts essential details,
+    including the official billing attractions to prevent name collisions.
     """
-    # Ensures venues is a list and has at least one item
     venues = event.get("_embedded", {}).get("venues", [])
     venue = venues[0] if venues else {}
 
@@ -128,6 +115,11 @@ def extract_event_info(event: dict, artist_name: str) -> dict:
     else:
         price_str = "Not listed"
 
+    # Extract the official verified artists performing at this event
+    attractions = event.get("_embedded", {}).get("attractions", [])
+    # Strip whitespace to handle hidden trailing characters cleanly
+    performer_names = [a.get("name", "").lower().strip() for a in attractions]
+
     return {
         "artist": artist_name,
         "event_name": event.get("name", "Unknown"),
@@ -137,65 +129,86 @@ def extract_event_info(event: dict, artist_name: str) -> dict:
         "country": venue.get("country", {}).get("name", "Unknown"),
         "price_range": price_str,
         "ticket_url": event.get("url", "N/A"),
+        # Pass this array for filtering stage
+        "performers": performer_names,
     }
-
 
 def fetch_all_events(artists: list[str]) -> list[dict]:
     """
     Loops through a list of artists, fetches their events, filters out tribute acts,
-    and returns a master list of all verified real concerts.
-    
-    Args:
-        artists (list[str]): Names of the artists to look up.
-        
-    Returns:
-        list[dict]: A list of aggregated, parsed, and filtered concert dictionaries.
+    logistics, and name collisions dynamically using the attractions data.
     """
     all_events = []
+    # Prevents duplicate ticket listings
+    seen_events = set()
+
     for artist in artists:
         print(f"Searching: {artist}...")
         try:
             raw_events = get_events_for_artist(artist)
             filtered_count = 0
+            artist_lower = artist.lower()
 
             for event in raw_events:
-                event_info = extract_event_info(event,artist_name=artist)
-
-                # Check if any banned keyword is in the event name (case-insensitive)
+                event_info = extract_event_info(event, artist_name=artist)
                 event_name_lower = event_info['event_name'].lower()
-                is_banned = any(keyword in event_name_lower for keyword in BANNED_KEYWORDS)
+                city_lower = event_info['city'].lower()
+                date_str = event_info['date']
 
-                if is_banned:
-                    # skip this tribute act event
-                    print(f"SKIPPED TRIBUTE:{event_info['event_name']}")
+                # DYNAMIC ATTRACTION CHECK (Strict Performer Match)
+                if event_info["performers"]:
+                    # Strict array membership match
+                    is_officially_billing = artist_lower in event_info["performers"]
+                else:
+                    # Strict standalone word match if attractions array is missing
+                    ## Splits 'Love Gang//Dana Ives//The Nancies' into clean individual words
+                    title_words = [w.strip(".,!?()[]-/") for w in event_name_lower.split()]
+                    
+                    # We want to make sure the artist e.g. IVE is billed, but NOT part of 'dana ives'
+                    # If 'ives' is there but 'ive' isn't a standalone element, this fails safely
+                    is_officially_billing = artist_lower in title_words
+
+                if not is_officially_billing:
+                    print(f"SKIPPED NAME COLLISION: '{event_info['event_name']}' does not officially bill exact artist '{artist}'")
                     continue
 
+                # 3. LOGISTICS & TRIBUTE FILTER
+                is_banned = any(keyword in event_name_lower for keyword in BANNED_KEYWORDS)
+                if is_banned:
+                    print(f"SKIPPED TRIBUTE/LOGISTICS: {event_info['event_name']}")
+                    continue
+
+                # COMPOUND DEDUPLICATION
+                # Prevents double-counting multiple ticket tiers (VIP vs Standard) on the same night
+                unique_key = (artist_lower, city_lower, date_str)
+                if unique_key in seen_events:
+                    continue
+
+                seen_events.add(unique_key)
                 all_events.append(event_info)
                 filtered_count += 1
 
-            print(f"Success: Found {filtered_count} real events (filtered out {len(raw_events) - filtered_count} tribute acts)")
+            print(f"Success: Found {filtered_count} real events (filtered out {len(raw_events) - filtered_count} entries)\n")
         except Exception as e:
             print(f"Error processing {artist}: {e}")
     return all_events
 
 def print_events(events: list[dict]):
     """
-    Prints a beautiful, human-readable layout of all collected concerts directly to the console.
-    
-    Args:
-        events (list[dict]): List of parsed concert dictionaries.
+    Prints a beautifully aligned, scannable layout of all collected concerts 
+    directly to the console for rapid verification.
     """
     print("\n" + "=" * 60)
     print("                    UPCOMING REAL CONCERTS                     ")
     print("=" * 60)
     for e in events:
-        print(f"\n🎵 {e['artist']} — {e['event_name']}")
-        print(f"   📅 {e['date']}")
-        print(f"   📍 {e['venue']}, {e['city']}, {e['country']}")
-        print(f"   💰 {e['price_range']}")
-        print(f"   🔗 {e['ticket_url']}")
+        print(f"\n🎵 **Artist**: {e['artist']} — {e['event_name']}")
+        print(f"   📅 **Date**: {e['date']}")
+        print(f"   📍 **Location**: {e['venue']}, {e['city']}, {e['country']}")
+        print(f"   💰 **Price**: {e['price_range']}")
+        print(f"   🔗 **Ticket Page**: {e['ticket_url']}")
     print("\n" + "=" * 60)
-    print(f"📋 Total Aggregated Events: {len(events)}")
+    print(f"📋 **Total Aggregated Events**: {len(events)}")
 
 def save_to_json(events, filename="data/concerts.json"):
     """
@@ -210,15 +223,15 @@ def save_to_json(events, filename="data/concerts.json"):
     # Open file with "w" which automatically clears out old data and refreshes it fresh
     with open(filename, "w") as f:
         json.dump(events, f, indent=2)
-    print(f"🔄 Data Cache Refreshed! Saved current records to -> {filename}")
+    print(f"Data Cache Refreshed! Saved current records to -> {filename}")
 
 
 if __name__ == "__main__":
     # Get dynamic list of 5 favourite artists right out Spotify profile
-    dynamic_artists = get_spotify_top_artists(limit=5)
+    dynamic_artists = get_spotify_top_artists(limit=10)
     # events = fetch_all_events(ARTISTS)
 
-    # Run ticketmaster pipeline with spotify artists 
+    # Run ticketmaster pipeline with spotify artists
     events = fetch_all_events(dynamic_artists)
     print_events(events)
     save_to_json(events)
