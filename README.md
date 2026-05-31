@@ -13,6 +13,7 @@ decision by combining concert data, flight costs, and AI-powered scoring.
 - **Ticketmaster API** — concert & ticket data
 - **Serpapi** — flight prices via Google Flights
 - **Gemini API** — AI extraction and enrichment
+- **Spotify API** - Dynamically Extract Top 5 artist from Spotify Profile 
 - **Python** — pandas, requests
 
 ## Setup
@@ -28,8 +29,15 @@ decision by combining concert data, flight costs, and AI-powered scoring.
 3. Create a `.env` file in the root folder
 ```
    TICKETMASTER_API_KEY=your_key_here
-   SERPAPI_KEY=your_key_here
+
+   SPOTIPY_CLIENT_ID=your_key_here
+   SPOTIPY_CLIENT_SECRET=your_key_here
+   SPOTIPY_REDIRECT_URI=your_key_here
+
    GEMINI_KEY=your_key_here
+   GEMINI_MODEL=your_key_here
+
+   SERPAPI_KEY=your_key_here
 ```
 4. Run the pipeline
 ```bash
